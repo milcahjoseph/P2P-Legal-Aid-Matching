@@ -90,9 +90,13 @@
     (let 
         ((sender tx-sender)
          (case-id (+ (var-get total-cases) u1))
-         (user-data (unwrap! (map-get? users sender) ERR_NOT_FOUND)))
+         (user-data (unwrap! (map-get? users sender) ERR_NOT_FOUND))
+         (current-balance (default-to u0 (map-get? user-tokens sender))))
         (asserts! (is-eq (get user-type user-data) "client") ERR_NOT_AUTHORIZED)
         (asserts! (get is-verified user-data) ERR_NOT_AUTHORIZED)
+        (asserts! (>= current-balance CASE_REWARD) ERR_INSUFFICIENT_FUNDS)
+        (map-set user-tokens sender (- current-balance CASE_REWARD))
+        (var-set platform-balance (+ (var-get platform-balance) CASE_REWARD))
         (map-set cases case-id {
             client: sender,
             title: title,
@@ -141,7 +145,7 @@
         (asserts! (is-eq sender (get client case-data)) ERR_NOT_AUTHORIZED)
         (asserts! (is-eq (get status case-data) "in-progress") ERR_CASE_NOT_ACTIVE)
         (map-set cases case-id (merge case-data {status: "completed"}))
-        (reward-user lawyer (get reward-amount case-data))
+        (try! (release-case-reward lawyer (get reward-amount case-data)))
         (try! (update-user-stats lawyer))
         (try! (update-user-stats sender))
         (ok true)))
@@ -177,6 +181,15 @@
     (let ((current-balance (default-to u0 (map-get? user-tokens user))))
         (map-set user-tokens user (+ current-balance amount))
         true))
+
+(define-private (release-case-reward (user principal) (amount uint))
+    (let 
+        ((current-platform-balance (var-get platform-balance))
+         (current-user-balance (default-to u0 (map-get? user-tokens user))))
+        (asserts! (>= current-platform-balance amount) ERR_INSUFFICIENT_FUNDS)
+        (var-set platform-balance (- current-platform-balance amount))
+        (map-set user-tokens user (+ current-user-balance amount))
+        (ok true)))
 
 (define-private (update-user-stats (user principal))
     (let ((user-data (unwrap! (map-get? users user) ERR_NOT_FOUND)))
